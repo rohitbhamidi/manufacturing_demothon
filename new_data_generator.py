@@ -5,7 +5,10 @@ from datetime import timedelta, datetime
 import json
 import time
 from collections import OrderedDict
+from confluent_kafka import Producer
 from constants import *
+
+from secret import KAFKA_CONFIG
 
 class SmallDataGenerator:
     """
@@ -25,6 +28,10 @@ class SmallDataGenerator:
         self.inspector_ids = []
         self.process_ids = []
         self.generate_unique_ids()
+        
+        # Kafka Producer Configuration
+        self.kafka_config = KAFKA_CONFIG
+        self.producer = Producer(self.kafka_config)
     
     def generate_unique_ids(self):
         """Generate unique IDs for products, machines, ingredients, inspectors, and processes."""
@@ -100,6 +107,8 @@ class SmallDataGenerator:
                 "inspection_results": inspection_results,
                 "final_orders": final_orders
             }
+
+            self._send_to_kafka('real_time_data', data)
 
             yield data
             time.sleep(1)
@@ -286,3 +295,45 @@ class SmallDataGenerator:
                     "delivery_date": datetime.now() + timedelta(days=7)
                 })
         return final_orders
+
+    def _send_to_kafka(self, topic, data):
+        """
+        Send data to Kafka topic.
+
+        Args:
+            topic (str): Kafka topic to send data to.
+            data (dict): Data to be sent.
+        """
+        try:
+            json_data = json.dumps(data, default=self._json_serial)
+            self.producer.produce(topic, key=str(datetime.now()), value=json_data, callback=self.delivery_report)
+            self.producer.poll(0)  # Trigger delivery callbacks
+        except Exception as e:
+            print(f"Failed to send data to Kafka: {e}")
+
+    def delivery_report(self, err, msg):
+        """
+        Delivery report callback.
+
+        Args:
+            err (KafkaError): The error (if any) that occurred.
+            msg (Message): The message that was produced or failed.
+        """
+        if err is not None:
+            print(f"Message delivery failed: {err}")
+        else:
+            print(f"Message delivered to {msg.topic()} [{msg.partition()}]")
+
+    def _json_serial(self, obj):
+        """
+        JSON serializer for objects not serializable by default.
+
+        Args:
+            obj: Object to serialize.
+
+        Returns:
+            str: JSON serialized object.
+        """
+        if isinstance(obj, (datetime, timedelta)):
+            return obj.isoformat()
+        raise TypeError("Type not serializable")
