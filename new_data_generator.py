@@ -32,6 +32,7 @@ class SmallDataGenerator:
         # Kafka Producer Configuration
         self.kafka_config = KAFKA_CONFIG
         self.producer = Producer(self.kafka_config)
+        self.mongo_details = MONGO_DETAILS
     
     def generate_unique_ids(self):
         """Generate unique IDs for products, machines, ingredients, inspectors, and processes."""
@@ -80,7 +81,7 @@ class SmallDataGenerator:
         }
         return product_catalog, machine_catalog, ingredient_catalog, inspector_catalog, process_catalog
 
-    def generate_real_time_data(self, orders):
+    def generate_real_time_data(self, orders, send_method='kafka'):
         """
         Generate real-time data for the manufacturing process.
 
@@ -108,7 +109,10 @@ class SmallDataGenerator:
                 "final_orders": final_orders
             }
 
-            self._send_to_kafka('real_time_data', data)
+            if send_method == 'kafka':
+                self._send_to_kafka('real_time_data', data)
+            else:
+                self._write_to_mongo(self.mongo_details, data)
 
             yield data
             time.sleep(1)
