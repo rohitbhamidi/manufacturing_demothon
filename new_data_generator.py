@@ -6,9 +6,9 @@ import json
 import time
 from collections import OrderedDict
 from confluent_kafka import Producer
-from constants import *
 
-from secret import KAFKA_CONFIG
+from constants import *
+from secret import *
 
 class SmallDataGenerator:
     """
@@ -172,16 +172,34 @@ class SmallDataGenerator:
                     self._start_batch(status, ingredient_inventory)
                 elif status["batch_status"] == "in_progress" and status["machine_stage"] == MACHINE_STAGE_IN_PROGRESS:
                     if datetime.now() - status["timestamp"] >= timedelta(seconds=30):
-                        self._advance_batch_to_stage(status, MACHINE_STAGE_MACHINE_1)
+                        self._advance_batch_to_stage(status, MACHINE_STAGE_MACHINE_1, ingredient_inventory)
                 elif status["batch_status"] == "machine_1" and status["machine_stage"] == MACHINE_STAGE_MACHINE_1:
                     if datetime.now() - status["timestamp"] >= timedelta(seconds=30):
-                        self._advance_batch_to_stage(status, MACHINE_STAGE_MACHINE_2)
+                        self._advance_batch_to_stage(status, MACHINE_STAGE_MACHINE_2, ingredient_inventory)
                 elif status["batch_status"] == "machine_2" and status["machine_stage"] == MACHINE_STAGE_MACHINE_2:
                     if datetime.now() - status["timestamp"] >= timedelta(seconds=30):
                         self._complete_batch(batch_id, status, product_order_counts)
 
                 if any(machine_status[m_id]["machine_status"] == "stopped" for m_id in self.machine_ids):
                     self._fail_batch(batch_id, status, product_order_counts)
+
+    def _advance_batch_to_stage(self, status, stage, ingredient_inventory):
+        """
+        Advance a batch to the specified stage and update ingredient inventory.
+
+        Args:
+            status (dict): Current status of the batch.
+            stage (int): Stage to advance the batch to.
+            ingredient_inventory (dict): Current ingredient inventory.
+        """
+        status["timestamp"] = datetime.now()
+        if stage == MACHINE_STAGE_MACHINE_1:
+            status["batch_status"] = "machine_1"
+            ingredient_inventory[self.ingredient_ids[0]]["quantity"] -= 1  # Corrected index to 0 for ingredient 1
+        elif stage == MACHINE_STAGE_MACHINE_2:
+            status["batch_status"] = "machine_2"
+            ingredient_inventory[self.ingredient_ids[1]]["quantity"] -= 1  # Corrected index to 1 for ingredient 2
+        status["machine_stage"] = stage
 
     def _start_batch(self, status, ingredient_inventory):
         """
@@ -194,22 +212,8 @@ class SmallDataGenerator:
         status["timestamp"] = datetime.now()
         status["batch_status"] = "in_progress"
         status["machine_stage"] = MACHINE_STAGE_IN_PROGRESS
-        ingredient_inventory[self.ingredient_ids[0]]["quantity"] -= 1
+        ingredient_inventory[self.ingredient_ids[0]]["quantity"] -= 1  # Corrected index to 0 for ingredient 1
 
-    def _advance_batch_to_stage(self, status, stage):
-        """
-        Advance a batch to the specified stage.
-
-        Args:
-            status (dict): Current status of the batch.
-            stage (int): Stage to advance the batch to.
-        """
-        status["timestamp"] = datetime.now()
-        if stage == MACHINE_STAGE_MACHINE_1:
-            status["batch_status"] = "machine_1"
-        elif stage == MACHINE_STAGE_MACHINE_2:
-            status["batch_status"] = "machine_2"
-        status["machine_stage"] = stage
 
     def _complete_batch(self, batch_id, status, product_order_counts):
         """
