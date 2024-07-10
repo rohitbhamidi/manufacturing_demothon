@@ -7,6 +7,8 @@ import time
 import random
 from collections import OrderedDict
 from confluent_kafka import Producer
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 
 from constants import *
 from secret import *
@@ -20,6 +22,9 @@ class SyntheticDataGenerator:
 
         self.kafka_config = KAFKA_CONFIG
         self.producer = Producer(self.kafka_config)
+
+        self.mongo_connection_string = MONGO_CONNECTION_STRING
+        self.mongo_client = MongoClient(self.mongo_conn_str, server_api=ServerApi('1'))
         
         self.orders = []
         self.completed_orders = []
