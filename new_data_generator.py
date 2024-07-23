@@ -6,6 +6,8 @@ import json
 import time
 from collections import OrderedDict
 from confluent_kafka import Producer
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 
 from constants import *
 from secret import *

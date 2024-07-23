@@ -1,17 +1,14 @@
-import pandas as pd
-import numpy as np
-from faker import Faker
-from datetime import timedelta, datetime
-import json
-import time
 import random
-from collections import OrderedDict
-from confluent_kafka import Producer
+import time
+import json
+from datetime import datetime
+from faker import Faker
+from confluent_kafka import Producer, KafkaException
+from confluent_kafka.admin import AdminClient, NewTopic
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
-
-from constants import *
 from secret import *
+from constants import *
 
 class SyntheticDataGenerator:
     def __init__(self):
@@ -23,16 +20,23 @@ class SyntheticDataGenerator:
         self.kafka_config = KAFKA_CONFIG
         self.producer = Producer(self.kafka_config)
 
-        self.mongo_connection_string = MONGO_CONNECTION_STRING
+        self.mongo_conn_str = MONGO_CONNECTION_STRING
         self.mongo_client = MongoClient(self.mongo_conn_str, server_api=ServerApi('1'))
-        
+        self.db = self.mongo_client.manufacturing_demothon
+        self.collection_new_orders = self.db.orders
+        self.collection_completed_orders = self.db.completed_orders
+
         self.orders = []
         self.completed_orders = []
+
+        # Validate connections
+        self.validate_kafka_connection()
+        self.validate_mongo_connection()
 
     def generate_unique_ids(self):
         self.product_ids = [self.fake.uuid4() for _ in range(2)]
         self.machine_ids = [self.fake.uuid4() for _ in range(2)]
-    
+
     def generate_machine_status(self, machine_id, order_id):
         machine_status = random.choice([0, 1])
         machine_status_ts = datetime.now().isoformat()
@@ -61,7 +65,7 @@ class SyntheticDataGenerator:
         product_id = random.choice(self.product_ids)
         quantity = random.randint(1, 10)
         new_order = self.create_order(order_id, product_id, quantity)
-        self.write_order_to_db(None, new_order)  # Replace None with actual db connection
+        self.write_order_to_db(new_order)
         return new_order
 
     def complete_order(self, order_id):
@@ -94,31 +98,63 @@ class SyntheticDataGenerator:
         }
         self.completed_orders.append(completed_order)
         self.orders.remove(order)
-        self.write_completed_order_to_db(None, completed_order)  # Replace None with actual db connection
+        self.write_completed_order_to_db(completed_order)
         return completed_order
 
-    def write_order_to_db(self, db_connection, order):
-        # Simulated database write
-        pass
+    def write_order_to_db(self, order):
+        try:
+            self.collection_new_orders.insert_one(order)
+            print("New order written to MongoDB successfully.")
+        except Exception as e:
+            print(f"Failed to write new order to MongoDB: {e}")
 
-    def write_completed_order_to_db(self, db_connection, completed_order):
-        # Simulated database write
-        pass
+    def write_completed_order_to_db(self, completed_order):
+        try:
+            self.collection_completed_orders.insert_one(completed_order)
+            print("Completed order written to MongoDB successfully.")
+        except Exception as e:
+            print(f"Failed to write completed order to MongoDB: {e}")
 
     def send_to_kafka(self, topic, data):
         try:
             json_data = json.dumps(data)
             self.producer.produce(topic, key=str(datetime.now()), value=json_data, callback=self.delivery_report)
             self.producer.poll(0)
-        except Exception as e:
+        except KafkaException as e:
             print(f"Failed to send data to Kafka: {e}")
-        # pass
 
     def delivery_report(self, err, msg):
         if err is not None:
             print(f"Message delivery failed: {err}")
         else:
             print(f"Message delivered to {msg.topic()} [{msg.partition()}]")
+
+    def validate_kafka_connection(self):
+        try:
+            admin_client = AdminClient(self.kafka_config)
+            topic_list = ['test_topic']
+            metadata = admin_client.list_topics(timeout=10)
+
+            for topic in topic_list:
+                if topic not in metadata.topics:
+                    new_topic = NewTopic(topic, num_partitions=1, replication_factor=1)
+                    admin_client.create_topics([new_topic])
+                    print(f"Created topic: {topic}")
+
+            # Now produce a test message
+            self.producer.produce('test_topic', key='test', value='test_message', callback=self.delivery_report)
+            self.producer.flush()
+            print("Kafka connection validated successfully.")
+        except Exception as e:
+            print(f"Failed to validate Kafka connection: {e}")
+
+    def validate_mongo_connection(self):
+        try:
+            # Perform a simple operation to check connection
+            self.db.command('ping')
+            print("MongoDB connection validated successfully.")
+        except Exception as e:
+            print(f"Failed to validate MongoDB connection: {e}")
 
     def run(self):
         while True:
